@@ -39,6 +39,7 @@ type GoogleOAuth struct {
 	ClientId     string
 	ClientSecret string
 	RedirectUri  string
+	State        string
 }
 
 type GooglePeopleAPI struct {
@@ -108,7 +109,7 @@ func healthCheckHandler(c *fiber.Ctx) error {
 
 // ## Google OAuth Login URL Handler
 func googleLoginURLHandler(c *fiber.Ctx) error {
-	state := "random"
+	state := conf.GoogleOAuth.State
 	url := oauthConf.AuthCodeURL(state, oauth2.AccessTypeOffline)
 	return c.JSON(fiber.Map{
 		"url": url,
@@ -123,7 +124,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 
 	if state == "" {
 		return errors.New("required parameter `state` is missing")
-	} else if state != "random" {
+	} else if state != conf.GoogleOAuth.State {
 		return errors.New("required parameter `state` is invalid")
 	}
 	if code == "" {
