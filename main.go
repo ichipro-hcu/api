@@ -71,6 +71,15 @@ type IsSuccessResponse struct {
 	Message string `json:"message"`
 }
 
+// ## User Struct
+type User struct {
+	ID        uint `gorm:"primaryKey"`
+	Email     string
+	createdAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	alias     string
+}
+
 // # Initializations
 // ## Parse Configuration
 var conf Config
@@ -104,6 +113,15 @@ func initDatabase(config Config) error {
 
 	if err != nil {
 		return err
+	}
+
+	if slices.Contains(os.Args, "init-database-flag") {
+		err = Core.AutoMigrate(
+			&User{},
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
