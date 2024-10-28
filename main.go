@@ -379,6 +379,7 @@ func main() {
 	// ### Authentication
 	user.Get("/auth/login", googleLoginURLHandler)
 	user.Get("/auth/callback", googleCallbackHandler)
+	user.Get("/auth/refresh", JWTTokenRefreshHandler)
 
 	app.Listen(":3000")
 }
