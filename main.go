@@ -62,6 +62,10 @@ type JWTCallback struct {
 	AccessToken string
 }
 
+type CoreCookie struct {
+	AccessToken string
+}
+
 type IsSuccessResponse struct {
 	Success bool
 	Message string
@@ -117,23 +121,10 @@ func initOAuth() {
 	}
 }
 
-// # Handlers
-// ## Health Check Handler
-func healthCheckHandler(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{
-		"status": "ok",
-	})
-}
-
-// ## Google OAuth Login URL Handler
-func googleLoginURLHandler(c *fiber.Ctx) error {
-	state := conf.GoogleOAuth.State
-	url := oauthConf.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	return c.JSON(fiber.Map{
-		"url": url,
-	})
-}
-
+// # Libraries
+// ## Authentication
+// ### Google Authentication Callback
+// -> Generate JWT Token
 func googleCallback(state string, code string) (*JWTCallback, error) {
 	if state == "" {
 		return nil, errors.New("required parameter `state` is missing")
@@ -203,6 +194,44 @@ func googleCallback(state string, code string) (*JWTCallback, error) {
 	return jwtCallback, nil
 }
 
+// ### JWT Token Validation
+func JWTTokenValidate(tokenString string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return []byte(conf.JWTSessionConfig.Secret), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return claims, nil
+	} else {
+		return nil, err
+	}
+}
+
+// # Handlers
+// ## Health Check Handler
+func healthCheckHandler(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{
+		"status": "ok",
+	})
+}
+
+// ## Google OAuth Login URL Handler
+func googleLoginURLHandler(c *fiber.Ctx) error {
+	state := conf.GoogleOAuth.State
+	url := oauthConf.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	return c.JSON(fiber.Map{
+		"url": url,
+	})
+}
+
 // ## Google OAuth Callback Handler
 func googleCallbackHandler(c *fiber.Ctx) error {
 	// Get Callback Query Params
@@ -211,21 +240,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 	jwtCallback, err := googleCallback(state, code)
 
 	if err == nil {
-		/* 		cookie := new(fiber.Cookie)
-		   		cookie.Name = "accessToken"
-		   		cookie.Value = jwtCallback.AccessToken
-		   		cookie.Path = "/"
-		   		cookie.SameSite = "lax"
-		   		cookie.Secure = true
-		   		cookie.HTTPOnly = true
-		   		cookie.SessionOnly = true
-		   		cookie.Expires = time.Unix(jwtCallback.Claims["exp"].(int64), 0)
-		   		// cookie.Expires = time.Now().Add(24 * time.Hour)
-
-		   		// cookie.MaxAge = int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds())
-
-		   		c.Cookie(cookie) */
-
+		// Set Cookie
 		c.Cookie(&fiber.Cookie{
 			Name:     "accessToken",
 			Value:    jwtCallback.AccessToken,
@@ -263,6 +278,67 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			Message: e,
 		},
 	)
+}
+
+// ## Refresh JWT Token Handler
+func JWTTokenRefreshHandler(c *fiber.Ctx) error {
+	cookie := new(CoreCookie)
+	if err := c.CookieParser(cookie); err != nil {
+		return c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: "Provided Cookie is invalid",
+			},
+		)
+	}
+	if cookie.AccessToken == "" {
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: "No token is provided",
+			},
+		)
+	}
+
+	claims, err := JWTTokenValidate(
+		cookie.AccessToken,
+	)
+
+	if err != nil {
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: "Provided token is invalid",
+			},
+		)
+	}
+
+	c.ClearCookie("accessToken")
+
+	claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
+	nToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	nTokenString, err := nToken.SignedString([]byte(conf.JWTSessionConfig.Secret))
+
+	if err != nil {
+		c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: "Failed to generate new token",
+			},
+		)
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "accessToken",
+		Value:    nTokenString,
+		Path:     "/",
+		Expires:  time.Unix(claims["exp"].(int64), 0),
+		MaxAge:   int(time.Until(time.Unix(claims["exp"].(int64), 0)).Seconds()),
+		Secure:   true,
+		HTTPOnly: true,
+	})
+
+	return nil
 }
 
 // # Application
