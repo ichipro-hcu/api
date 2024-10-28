@@ -67,8 +67,8 @@ type CoreCookie struct {
 }
 
 type IsSuccessResponse struct {
-	Success bool
-	Message string
+	Success bool   `json:"success"`
+	Message string `json:"message"`
 }
 
 // # Initializations
@@ -251,8 +251,6 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			HTTPOnly: true,
 		})
 
-		c.Status(301).Redirect("/?loggedIn=true")
-
 		return c.JSON(
 			IsSuccessResponse{
 				Success: true,
@@ -337,6 +335,13 @@ func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 		Secure:   true,
 		HTTPOnly: true,
 	})
+
+	c.JSON(
+		IsSuccessResponse{
+			Success: true,
+			Message: "Successfully refreshed token",
+		},
+	)
 
 	return nil
 }
