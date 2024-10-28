@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/gofiber/fiber/v2 v2.52.5
+	github.com/golang-jwt/jwt v3.2.2+incompatible
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
 	golang.org/x/oauth2 v0.23.0
 	gorm.io/driver/postgres v1.5.9
