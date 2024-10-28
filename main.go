@@ -10,12 +10,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/exp/slices"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+
+	"github.com/golang-jwt/jwt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -23,8 +26,9 @@ import (
 // # Structs
 // ## Configuration Struct (config.toml)
 type Config struct {
-	Database    Database
-	GoogleOAuth GoogleOAuth
+	Database         Database
+	GoogleOAuth      GoogleOAuth
+	JWTSessionConfig JWTSessionConfig
 }
 
 type Database struct {
@@ -47,6 +51,20 @@ type GooglePeopleAPI struct {
 	Email         string `json:"email"`
 	VerifiedEmail bool   `json:"verified_email"`
 	Picture       string `json:"picture"`
+}
+
+type JWTSessionConfig struct {
+	Secret string
+}
+
+type JWTCallback struct {
+	Claims      jwt.MapClaims
+	AccessToken string
+}
+
+type IsSuccessResponse struct {
+	Success bool
+	Message string
 }
 
 // # Initializations
@@ -116,63 +134,135 @@ func googleLoginURLHandler(c *fiber.Ctx) error {
 	})
 }
 
-// ## Google OAuth Callback Handler
-func googleCallbackHandler(c *fiber.Ctx) error {
-	// Get Callback Query Params
-	state := c.Query("state")
-	code := c.Query("code")
-
+func googleCallback(state string, code string) (*JWTCallback, error) {
 	if state == "" {
-		return errors.New("required parameter `state` is missing")
+		return nil, errors.New("required parameter `state` is missing")
 	} else if state != conf.GoogleOAuth.State {
-		return errors.New("required parameter `state` is invalid")
+		return nil, errors.New("required parameter `state` is invalid")
 	}
 	if code == "" {
-		return errors.New("required parameter `code` is missing")
+		return nil, errors.New("required parameter `code` is missing")
 	}
 
 	// Exchenge OAuth Token
 	cxt := context.Background()
 	token, err := oauthConf.Exchange(cxt, code)
 	if err != nil {
-		return fmt.Errorf("failed to exchange token: %v", err)
+		return nil, fmt.Errorf("failed to exchange token: %v", err)
 	}
 	if token == nil {
-		return errors.New("failed to contact with Google API (Could not get token)")
+		return nil, errors.New("failed to contact with Google API (Could not get token)")
 	}
 
 	// Retrieve User Information from Google API
 	url := "https://www.googleapis.com/oauth2/v2/userinfo"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return errors.New("failed to contact with Google API (Could not create request)")
+		return nil, errors.New("failed to contact with Google API (Could not create request)")
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %v", token.AccessToken))
 
 	client := new(http.Client)
 	resp, err := client.Do(req)
 	if err != nil {
-		return errors.New("failed to contact with Google API (Could not get response)")
+		return nil, errors.New("failed to contact with Google API (Could not get response)")
 	}
 	defer resp.Body.Close()
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return errors.New("failed to contact with Google API (Could not read response)")
+		return nil, errors.New("failed to contact with Google API (Could not read response)")
 	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"failed to contact with Google API (Status Code: %d)",
 			resp.StatusCode,
 		)
 	}
 	var userDataOnGoogle GooglePeopleAPI
 	if err := json.Unmarshal(b, &userDataOnGoogle); err != nil {
-		return errors.New("failed to contact with Google API (Could not parse response)")
+		return nil, errors.New("failed to contact with Google API (Could not parse response)")
 	}
 
-	c.JSON(userDataOnGoogle)
-	return nil
+	claims := jwt.MapClaims{
+		"user_id": userDataOnGoogle.ID,
+		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+	}
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	jwtAccessToken, err := jwtToken.SignedString([]byte(conf.JWTSessionConfig.Secret))
+	if err != nil {
+		return nil,
+			fmt.Errorf("failed to generate JWT token: %v", err)
+	}
+
+	jwtCallback := &JWTCallback{
+		Claims:      claims,
+		AccessToken: jwtAccessToken,
+	}
+
+	return jwtCallback, nil
+}
+
+// ## Google OAuth Callback Handler
+func googleCallbackHandler(c *fiber.Ctx) error {
+	// Get Callback Query Params
+	state := c.Query("state")
+	code := c.Query("code")
+	jwtCallback, err := googleCallback(state, code)
+
+	if err == nil {
+		/* 		cookie := new(fiber.Cookie)
+		   		cookie.Name = "accessToken"
+		   		cookie.Value = jwtCallback.AccessToken
+		   		cookie.Path = "/"
+		   		cookie.SameSite = "lax"
+		   		cookie.Secure = true
+		   		cookie.HTTPOnly = true
+		   		cookie.SessionOnly = true
+		   		cookie.Expires = time.Unix(jwtCallback.Claims["exp"].(int64), 0)
+		   		// cookie.Expires = time.Now().Add(24 * time.Hour)
+
+		   		// cookie.MaxAge = int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds())
+
+		   		c.Cookie(cookie) */
+
+		c.Cookie(&fiber.Cookie{
+			Name:     "accessToken",
+			Value:    jwtCallback.AccessToken,
+			Path:     "/",
+			Expires:  time.Unix(jwtCallback.Claims["exp"].(int64), 0),
+			MaxAge:   int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds()),
+			Secure:   true,
+			HTTPOnly: true,
+		})
+
+		c.Status(301).Redirect("/?loggedIn=true")
+
+		return c.JSON(
+			IsSuccessResponse{
+				Success: true,
+				Message: "Successfully logged in",
+			},
+		)
+	}
+
+	e := err.Error()
+
+	if e == "state string does not match" || e == "required parameter `state` is missing" {
+		return c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: e,
+			},
+		)
+	}
+
+	return c.Status(500).JSON(
+		IsSuccessResponse{
+			Success: false,
+			Message: e,
+		},
+	)
 }
 
 // # Application
@@ -204,12 +294,13 @@ func main() {
 	api := app.Group("/api")
 	v1 := api.Group("/v1")
 
-	// Health Check
+	// ## Health Check
 	v1.Get("/", healthCheckHandler)
 	v1.Get("/check", healthCheckHandler)
 
-	// User Scopes
+	// ## User Scopes
 	user := v1.Group("/user")
+	// ### Authentication
 	user.Get("/auth/login", googleLoginURLHandler)
 	user.Get("/auth/callback", googleCallbackHandler)
 
