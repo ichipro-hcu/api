@@ -67,17 +67,19 @@ type CoreCookie struct {
 }
 
 type IsSuccessResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success bool        `json:"success"`
+	Message *string     `json:"message,omitempty"`
+	Result  interface{} `json:"result,omitempty"`
 }
 
 // ## User Struct
 type User struct {
-	ID        uint `gorm:"primaryKey"`
+	ID        string `gorm:"primaryKey"`
 	Email     string
-	createdAt time.Time `gorm:"autoCreateTime"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
-	alias     string
+	Alias     string    `gorm:"unique"`
+	IsExist   bool      `gorm:"default:true"`
 }
 
 // # Initializations
@@ -195,6 +197,7 @@ func googleCallback(state string, code string) (*JWTCallback, error) {
 
 	claims := jwt.MapClaims{
 		"user_id": userDataOnGoogle.ID,
+		"email":   userDataOnGoogle.Email,
 		"exp":     time.Now().Add(time.Hour * 72).Unix(),
 	}
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -233,6 +236,34 @@ func JWTTokenValidate(tokenString string) (jwt.MapClaims, error) {
 	}
 }
 
+// ## User
+// ### Create User
+func createUser(id string, email string) (*User, error) {
+	user := &User{
+		ID:    id,
+		Email: email,
+		Alias: string(id),
+	}
+	result := Core.Create(user)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return user, nil
+}
+
+func ReadUser(id string, email string) (*User, error) {
+	user := &User{}
+	result := Core.First(user, "id = ?", id)
+	if result.Error == gorm.ErrRecordNotFound {
+		createUser(id, email)
+	} else if result.Error != nil {
+		return nil, result.Error
+	} else if !user.IsExist {
+		return nil, errors.New("User is not exist")
+	}
+	return user, nil
+}
+
 // # Handlers
 // ## Health Check Handler
 func healthCheckHandler(c *fiber.Ctx) error {
@@ -269,10 +300,11 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			HTTPOnly: true,
 		})
 
+		msg := "Successfully logged in"
 		return c.JSON(
 			IsSuccessResponse{
 				Success: true,
-				Message: "Successfully logged in",
+				Message: &msg,
 			},
 		)
 	}
@@ -283,7 +315,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 		return c.Status(400).JSON(
 			IsSuccessResponse{
 				Success: false,
-				Message: e,
+				Message: &e,
 			},
 		)
 	}
@@ -291,7 +323,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 	return c.Status(500).JSON(
 		IsSuccessResponse{
 			Success: false,
-			Message: e,
+			Message: &e,
 		},
 	)
 }
@@ -300,18 +332,20 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 	cookie := new(CoreCookie)
 	if err := c.CookieParser(cookie); err != nil {
+		msg := "Provided Cookie is invalid"
 		return c.Status(400).JSON(
 			IsSuccessResponse{
 				Success: false,
-				Message: "Provided Cookie is invalid",
+				Message: &msg,
 			},
 		)
 	}
 	if cookie.AccessToken == "" {
-		c.Status(400).JSON(
+		msg := "No token is provided"
+		return c.Status(400).JSON(
 			IsSuccessResponse{
 				Success: false,
-				Message: "No token is provided",
+				Message: &msg,
 			},
 		)
 	}
@@ -321,10 +355,11 @@ func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 	)
 
 	if err != nil {
+		msg := "Provided token is invalid"
 		c.Status(400).JSON(
 			IsSuccessResponse{
 				Success: false,
-				Message: "Provided token is invalid",
+				Message: &msg,
 			},
 		)
 	}
@@ -336,10 +371,11 @@ func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 	nTokenString, err := nToken.SignedString([]byte(conf.JWTSessionConfig.Secret))
 
 	if err != nil {
+		msg := "Failed to generate new token"
 		c.Status(500).JSON(
 			IsSuccessResponse{
 				Success: false,
-				Message: "Failed to generate new token",
+				Message: &msg,
 			},
 		)
 	}
@@ -354,14 +390,123 @@ func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 		HTTPOnly: true,
 	})
 
-	c.JSON(
+	msg := "Successfully refreshed token"
+	return c.JSON(
 		IsSuccessResponse{
 			Success: true,
-			Message: "Successfully refreshed token",
+			Message: &msg,
 		},
 	)
+}
 
+// ## User
+// ### Get User Handler
+func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
+	cookie := new(CoreCookie)
+	if err := c.CookieParser(cookie); err != nil {
+		msg := "Provided Cookie is invalid"
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+		return nil, nil, err
+	}
+	if cookie.AccessToken == "" {
+		msg := "No token is provided"
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+		return nil, nil, errors.New(msg)
+	}
+
+	claims, err := JWTTokenValidate(
+		cookie.AccessToken,
+	)
+
+	if err != nil {
+		msg := "Provided token is invalid"
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+		return nil, nil, err
+	}
+
+	claims_id := claims["user_id"].(string)
+	claims_email := claims["email"].(string)
+	if claims_id == "" {
+		msg := "Failed to parse user id from claims"
+		c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+		return nil, nil, fmt.Errorf(msg)
+	}
+	return &claims_id, &claims_email, nil
+}
+
+func getUserHandler(c *fiber.Ctx) error {
+	claims_id, claims_email, err := ParseCookie(c)
+	user, err := ReadUser(*claims_id, *claims_email)
+	if err != nil {
+		msg := "Failed to retrieve user information"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+	c.Status(200).JSON(
+		IsSuccessResponse{
+			Success: true,
+			Result:  &user,
+		},
+	)
 	return nil
+}
+
+func deleteUserHandler(c *fiber.Ctx) error {
+	claims_id, _, err := ParseCookie(c)
+	if err != nil {
+		msg := "Failed to retrieve user information"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+	user := &User{}
+	result := Core.Model(user).Where("id = ?", *claims_id).Update("is_exist", false)
+	if result.Error != nil {
+		msg := "Failed to delete user"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+	msg := "Successfully deleted user"
+	return c.JSON(
+		IsSuccessResponse{
+			Success: true,
+			Message: &msg,
+		},
+	)
 }
 
 // # Application
@@ -403,6 +548,10 @@ func main() {
 	user.Get("/auth/login", googleLoginURLHandler)
 	user.Get("/auth/callback", googleCallbackHandler)
 	user.Get("/auth/refresh", JWTTokenRefreshHandler)
+
+	// ### User Information
+	user.Get("/me", getUserHandler)
+	user.Delete("/me", deleteUserHandler)
 
 	app.Listen(":3000")
 }
