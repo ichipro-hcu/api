@@ -4,3 +4,12 @@
     user = "postgres"
     password = "p@ssw0rd"
     database = "postgres"
+
+[googleoauth]
+    clientid = "1234567890-clientid.apps.googleusercontent.com"
+    clientsecret = "client-secret-is-forever"
+    redirecturi = "https://example.com/api/v1/user/auth/callback"
+    state = "randomstring"
+
+[jwtsessionconfig]
+    secret = "randomstring2"

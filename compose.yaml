@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:latest
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ichipro
+      POSTGRES_PASSWORD: ichipro
+    restart: unless-stopped
+    
+  api:
+    build: .
+    depends_on: 
+      - db
+
+  cloudflare:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token $CLOUDFLARED_TOKEN
+    depends_on:
+      - db
+      - api
+
+volumes: 
+  postgres_data:
