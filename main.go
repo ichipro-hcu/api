@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"golang.org/x/exp/slices"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -534,6 +535,11 @@ func main() {
 
 	// ## Startup Fiber Application
 	app := fiber.New()
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "https://ichipro.sasakulab.com, http://localhost:5173",
+		AllowHeaders: "Origin, Content-Type, Accept",
+	}))
 
 	api := app.Group("/api")
 	v1 := api.Group("/v1")
