@@ -450,13 +450,23 @@ func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
 				Message: &msg,
 			},
 		)
-		return nil, nil, fmt.Errorf(msg)
+		return nil, nil, errors.New(msg)
 	}
 	return &claims_id, &claims_email, nil
 }
 
 func getUserHandler(c *fiber.Ctx) error {
 	claims_id, claims_email, err := ParseCookie(c)
+	if err != nil {
+		msg := "Failed to retrieve user information (Cookie Parse Error)"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
 	user, err := ReadUser(*claims_id, *claims_email)
 	if err != nil {
 		msg := "Failed to retrieve user information"
@@ -537,7 +547,7 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "https://ichipro.sasakulab.com, http://localhost:5173",
+		AllowOrigins: "https://*.sasakulab.com, http://localhost:5173",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
