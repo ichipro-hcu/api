@@ -298,6 +298,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			Expires:  time.Unix(jwtCallback.Claims["exp"].(int64), 0),
 			MaxAge:   int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds()),
 			Secure:   true,
+			SameSite: "Lax",
 			HTTPOnly: true,
 		})
 
@@ -306,6 +307,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			IsSuccessResponse{
 				Success: true,
 				Message: &msg,
+				Result:  jwtCallback.AccessToken,
 			},
 		)
 	}
