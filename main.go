@@ -299,6 +299,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			MaxAge:   int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds()),
 			Secure:   true,
 			SameSite: "Lax",
+			Domain:   ".sasakulab.com",
 			HTTPOnly: true,
 		})
 
@@ -549,8 +550,9 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "https://*.sasakulab.com, http://localhost:5173",
-		AllowHeaders: "Origin, Content-Type, Accept",
+		AllowOrigins:     "https://*.sasakulab.com, http://localhost:5173",
+		AllowHeaders:     "Origin, Content-Type, Accept",
+		AllowCredentials: true,
 	}))
 
 	api := app.Group("/api")
