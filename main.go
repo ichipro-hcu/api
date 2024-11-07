@@ -280,9 +280,11 @@ func healthCheckHandler(c *fiber.Ctx) error {
 func googleLoginURLHandler(c *fiber.Ctx) error {
 	state := conf.GoogleOAuth.State
 	url := oauthConf.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	return c.JSON(fiber.Map{
-		"url": url,
-	})
+	return c.JSON(
+		IsSuccessResponse{
+			Success: true,
+			Result:  url,
+		})
 }
 
 // ## Google OAuth Callback Handler
