@@ -81,6 +81,7 @@ type User struct {
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 	Alias     string    `gorm:"unique"`
 	IsExist   bool      `gorm:"default:true"`
+	AvatarURL string    `gorm:"default:null"`
 }
 
 // # Initializations
@@ -199,6 +200,7 @@ func googleCallback(state string, code string) (*JWTCallback, error) {
 	claims := jwt.MapClaims{
 		"user_id": userDataOnGoogle.ID,
 		"email":   userDataOnGoogle.Email,
+		"picture": userDataOnGoogle.Picture,
 		"exp":     time.Now().Add(time.Hour * 72).Unix(),
 	}
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -239,11 +241,12 @@ func JWTTokenValidate(tokenString string) (jwt.MapClaims, error) {
 
 // ## User
 // ### Create User
-func createUser(id string, email string) (*User, error) {
+func createUser(id string, email string, avatarUrl string) (*User, error) {
 	user := &User{
-		ID:    id,
-		Email: email,
-		Alias: string(id),
+		ID:        id,
+		Email:     email,
+		Alias:     string(id),
+		AvatarURL: avatarUrl,
 	}
 	result := Core.Create(user)
 	if result.Error != nil {
@@ -252,11 +255,11 @@ func createUser(id string, email string) (*User, error) {
 	return user, nil
 }
 
-func ReadUser(id string, email string) (*User, error) {
+func ReadUser(id string, email string, avatarUrl string) (*User, error) {
 	user := &User{}
 	result := Core.First(user, "id = ?", id)
 	if result.Error == gorm.ErrRecordNotFound {
-		createUser(id, email)
+		createUser(id, email, avatarUrl)
 	} else if result.Error != nil {
 		return nil, result.Error
 	} else if !user.IsExist {
@@ -297,6 +300,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			MaxAge:   int(time.Until(time.Unix(jwtCallback.Claims["exp"].(int64), 0)).Seconds()),
 			Secure:   true,
 			SameSite: "Lax",
+			Domain:   ".sasakulab.com",
 			HTTPOnly: true,
 		})
 		return c.Status(303).Redirect("https://ichipro.sasakulab.com/me")
@@ -394,7 +398,7 @@ func JWTTokenRefreshHandler(c *fiber.Ctx) error {
 
 // ## User
 // ### Get User Handler
-func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
+func ParseCookie(c *fiber.Ctx) (*string, *string, *string, error) {
 	cookie := new(CoreCookie)
 	if err := c.CookieParser(cookie); err != nil {
 		msg := "Provided Cookie is invalid"
@@ -404,7 +408,7 @@ func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
 				Message: &msg,
 			},
 		)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if cookie.AccessToken == "" {
 		msg := "No token is provided"
@@ -414,7 +418,7 @@ func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
 				Message: &msg,
 			},
 		)
-		return nil, nil, errors.New(msg)
+		return nil, nil, nil, errors.New(msg)
 	}
 
 	claims, err := JWTTokenValidate(
@@ -429,11 +433,12 @@ func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
 				Message: &msg,
 			},
 		)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	claims_id := claims["user_id"].(string)
 	claims_email := claims["email"].(string)
+	claims_avatar := claims["picture"].(string)
 	if claims_id == "" {
 		msg := "Failed to parse user id from claims"
 		c.Status(400).JSON(
@@ -442,13 +447,13 @@ func ParseCookie(c *fiber.Ctx) (*string, *string, error) {
 				Message: &msg,
 			},
 		)
-		return nil, nil, errors.New(msg)
+		return nil, nil, nil, errors.New(msg)
 	}
-	return &claims_id, &claims_email, nil
+	return &claims_id, &claims_email, &claims_avatar, nil
 }
 
 func getUserHandler(c *fiber.Ctx) error {
-	claims_id, claims_email, err := ParseCookie(c)
+	claims_id, claims_email, claims_avatar, err := ParseCookie(c)
 	if err != nil {
 		msg := "Failed to retrieve user information (Cookie Parse Error)"
 		return c.Status(500).JSON(
@@ -459,7 +464,7 @@ func getUserHandler(c *fiber.Ctx) error {
 		)
 	}
 
-	user, err := ReadUser(*claims_id, *claims_email)
+	user, err := ReadUser(*claims_id, *claims_email, *claims_avatar)
 	if err != nil {
 		msg := "Failed to retrieve user information"
 		return c.Status(500).JSON(
@@ -480,7 +485,7 @@ func getUserHandler(c *fiber.Ctx) error {
 }
 
 func deleteUserHandler(c *fiber.Ctx) error {
-	claims_id, _, err := ParseCookie(c)
+	claims_id, _, _, err := ParseCookie(c)
 	if err != nil {
 		msg := "Failed to retrieve user information"
 		return c.Status(500).JSON(
@@ -539,8 +544,9 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "https://*.sasakulab.com, http://localhost:5173",
-		AllowHeaders: "Origin, Content-Type, Accept",
+		AllowOrigins:     "https://*.sasakulab.com, http://localhost:5173",
+		AllowHeaders:     "Origin, Content-Type, Accept",
+		AllowCredentials: true,
 	}))
 
 	api := app.Group("/api")
