@@ -280,11 +280,7 @@ func healthCheckHandler(c *fiber.Ctx) error {
 func googleLoginURLHandler(c *fiber.Ctx) error {
 	state := conf.GoogleOAuth.State
 	url := oauthConf.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	return c.JSON(
-		IsSuccessResponse{
-			Success: true,
-			Result:  url,
-		})
+	return c.Status(303).Redirect(url)
 }
 
 // ## Google OAuth Callback Handler
@@ -307,15 +303,7 @@ func googleCallbackHandler(c *fiber.Ctx) error {
 			Domain:   ".sasakulab.com",
 			HTTPOnly: true,
 		})
-
-		msg := "Successfully logged in"
-		return c.JSON(
-			IsSuccessResponse{
-				Success: true,
-				Message: &msg,
-				Result:  jwtCallback.AccessToken,
-			},
-		)
+		return c.Status(303).Redirect("https://ichipro.sasakulab.com/me")
 	}
 
 	e := err.Error()
