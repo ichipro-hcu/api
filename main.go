@@ -259,7 +259,7 @@ func ReadUser(id string, email string, avatarUrl string) (*User, error) {
 	user := &User{}
 	result := Core.First(user, "id = ?", id)
 	if result.Error == gorm.ErrRecordNotFound {
-		createUser(id, email, avatarUrl)
+		return createUser(id, email, avatarUrl)
 	} else if result.Error != nil {
 		return nil, result.Error
 	} else if !user.IsExist {
@@ -544,7 +544,7 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://*.sasakulab.com, http://localhost:5173",
+		AllowOrigins:     "http://localhost.sasakulab.com:5173, https://ichipro.sasakulab.com, http://localhost:5173",
 		AllowHeaders:     "Origin, Content-Type, Accept",
 		AllowCredentials: true,
 	}))
