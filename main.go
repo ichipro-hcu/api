@@ -84,6 +84,17 @@ type User struct {
 	AvatarURL string    `gorm:"default:null"`
 }
 
+type Student struct {
+	ID           string    `gorm:"primaryKey"`
+	User         User      `gorm:"foreignKey:ID"`
+	Year         int       `gorm:"default:null"` // 入学年度
+	Grade        int       `gorm:"default:null"` // 学年
+	FacultyId    int       `gorm:"default:null"` // 学部ID
+	DepartmentId int       `gorm:"default:null"` // 学科ID
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
+}
+
 // # Initializations
 // ## Parse Configuration
 var conf Config
@@ -266,6 +277,52 @@ func ReadUser(id string, email string, avatarUrl string) (*User, error) {
 		return nil, errors.New("User is not exist")
 	}
 	return user, nil
+}
+
+// ## Student
+func createStudent(id string, year int, grade int, facultyId int, departmentId int) (*Student, error) {
+	student := &Student{
+		ID:           id,
+		Year:         year,
+		Grade:        grade,
+		FacultyId:    facultyId,
+		DepartmentId: departmentId,
+	}
+	result := Core.Create(student)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return student, nil
+}
+
+func ReadStudent(id string) (*Student, error) {
+	student := &Student{}
+	result := Core.First(student, "id = ?", id)
+	if result.Error == gorm.ErrRecordNotFound {
+		student, err := createStudent(id, 2024, -1, -1, -1)
+		return student, err
+	} else if result.Error != nil {
+		return nil, result.Error
+	}
+	return student, nil
+}
+
+func UpdateStudent(id string, year int, grade int, facultyId int, departmentId int) (*Student, error) {
+	student, err := ReadStudent(id)
+	if err != nil {
+		return nil, err
+	}
+
+	student.Year = year
+	student.Grade = grade
+	student.FacultyId = facultyId
+	student.DepartmentId = departmentId
+
+	result := Core.Save(student)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return student, nil
 }
 
 // # Handlers
