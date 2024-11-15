@@ -574,6 +574,38 @@ func deleteUserHandler(c *fiber.Ctx) error {
 	)
 }
 
+func getStudentHandler(c *fiber.Ctx) error {
+	claims_id, _, _, err := ParseCookie(c)
+	if err != nil {
+		msg := "Failed to retrieve user information"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+	student, err := ReadStudent(*claims_id)
+	if err != nil {
+		msg := "Failed to retrieve student information"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+	c.Status(200).JSON(
+		IsSuccessResponse{
+			Success: true,
+			Result:  &student,
+		},
+	)
+	return nil
+}
+
 // # Application
 func main() {
 	// # Initializations
