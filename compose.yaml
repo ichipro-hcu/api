@@ -7,10 +7,12 @@ services:
       POSTGRES_USER: ichipro
       POSTGRES_PASSWORD: ichipro
     restart: unless-stopped
-    
+    ports:
+      - 5434:5432
+
   api:
     build: .
-    depends_on: 
+    depends_on:
       - db
 
   cloudflare:
@@ -21,5 +23,5 @@ services:
       - db
       - api
 
-volumes: 
+volumes:
   postgres_data:
