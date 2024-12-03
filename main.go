@@ -95,6 +95,13 @@ type Student struct {
 	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
 }
 
+type StudentPostRequest struct {
+	FacultyId    *int `json:"faculty_id"`
+	DepartmentId *int `json:"department_id"`
+	Year         *int `json:"year"`
+	Grade        *int `json:"grade"`
+}
+
 // # Initializations
 // ## Parse Configuration
 var conf Config
@@ -606,6 +613,40 @@ func getStudentHandler(c *fiber.Ctx) error {
 	return nil
 }
 
+func setStudentHandler(c *fiber.Ctx) error {
+	claims_id, _, _, err := ParseCookie(c)
+	if err != nil {
+		msg := "Failed to retrieve user information"
+		return c.Status(500).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+	p := new(StudentPostRequest)
+	if c.Body() == nil {
+		msg := "No item is provided"
+		return c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+	err := c.BodyParser(p)
+	if err != nil {
+		msg := "Failed to Parse Updated Settings"
+		return c.Status(400).JSON(
+			IsSuccessResponse{
+				Success: false,
+				Message: &msg,
+			},
+		)
+	}
+
+}
+
 // # Application
 func main() {
 	// # Initializations
@@ -651,10 +692,16 @@ func main() {
 	user.Get("/auth/login", googleLoginURLHandler)
 	user.Get("/auth/callback", googleCallbackHandler)
 	user.Get("/auth/refresh", JWTTokenRefreshHandler)
-
 	// ### User Information
 	user.Get("/me", getUserHandler)
 	user.Delete("/me", deleteUserHandler)
+
+	// ## Student Scopes
+	student := v1.Group("/student")
+
+	// ### Student Information
+	student.Get("/me", getStudentHandler)
+	student.Post("/me", setStudentHandler)
 
 	app.Listen(":3000")
 }
